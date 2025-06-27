@@ -1,4 +1,4 @@
 openpyxl
 streamlit
 scikit-learn
-xlsxwriter'
+xlsxwriter
