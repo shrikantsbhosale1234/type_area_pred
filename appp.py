@@ -81,7 +81,7 @@ if uploaded_file:
             df['Area_pred'] = area_preds
 
             # Show preview
-            st.dataframe(df[['Text', 'Type_pred', 'Area_pred']])
+            st.dataframe(df)
 
             # Prepare download
             output = io.BytesIO()
