@@ -1,27 +1,14 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import pickle
 import io
 
-# --------------------------
-# Prediction Function
-# --------------------------
-def predict_sample(text, model_type, model_area, tfidf_vectorizer, le_type, le_area):
-    # Transform the input text using the fitted TF-IDF vectorizer
-    text_vector = tfidf_vectorizer.transform([text])
-    
-    # Predict encoded labels
-    type_pred_encoded = model_type.predict(text_vector)[0]
-    area_pred_encoded = model_area.predict(text_vector)[0]
-    
-    # Decode labels back to original strings
-    type_pred_label = le_type.inverse_transform([type_pred_encoded])[0]
-    area_pred_label = le_area.inverse_transform([area_pred_encoded])[0]
-    
-    return type_pred_label, area_pred_label
+from sklearn.preprocessing import LabelEncoder
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 # --------------------------
-# Load Pickle Files
+# Load trained models
 # --------------------------
 @st.cache_resource
 def load_models():
@@ -29,51 +16,85 @@ def load_models():
         model_type = pickle.load(f)
     with open('model_area.pkl', 'rb') as f:
         model_area = pickle.load(f)
-    with open('tfidf_vectorizer.pkl', 'rb') as f:
-        tfidf_vectorizer = pickle.load(f)
-    with open('le_type.pkl', 'rb') as f:
-        le_type = pickle.load(f)
-    with open('le_area.pkl', 'rb') as f:
-        le_area = pickle.load(f)
-    return model_type, model_area, tfidf_vectorizer, le_type, le_area
+    return model_type, model_area
 
-model_type, model_area, tfidf_vectorizer, le_type, le_area = load_models()
+# --------------------------
+# Encode text and labels
+# --------------------------
+def encode_text_data(df, text_column='Text', type_column='Type.1', area_column='AREA', max_features=5000):
+    le_type = LabelEncoder()
+    y_type = le_type.fit_transform(df[type_column])
+
+    le_area = LabelEncoder()
+    y_area = le_area.fit_transform(df[area_column])
+
+    tfidf_vectorizer = TfidfVectorizer(max_features=max_features, stop_words='english')
+    X = tfidf_vectorizer.fit_transform(df[text_column])
+
+    return X, y_type, y_area, tfidf_vectorizer, le_type, le_area
+
+# --------------------------
+# Predict single sample
+# --------------------------
+def predict_sample(text, model_type, model_area, tfidf_vectorizer, le_type, le_area):
+    text_vector = tfidf_vectorizer.transform([str(text)])
+    type_encoded = model_type.predict(text_vector)[0]
+    area_encoded = model_area.predict(text_vector)[0]
+    type_label = le_type.inverse_transform([type_encoded])[0]
+    area_label = le_area.inverse_transform([area_encoded])[0]
+    return type_label, area_label
 
 # --------------------------
 # Streamlit UI
 # --------------------------
-st.set_page_config(page_title="Batch Prediction App", layout="centered")
-st.title("📁 Predict Type and Area from Uploaded CSV")
+st.set_page_config(page_title="Text to Type/Area Predictor", layout="centered")
+st.title("📄 Predict Type and Area from Excel (.xlsx)")
 
-uploaded_file = st.file_uploader("Upload a CSV file with a 'text' column", type=['csv'])
+uploaded_file = st.file_uploader("Upload an Excel file with columns: Text, Type.1, AREA", type=["xlsx"])
 
 if uploaded_file:
     try:
-        df = pd.read_csv(uploaded_file)
+        df = pd.read_excel(uploaded_file)
 
-        if 'text' not in df.columns:
-            st.error("❌ The CSV must contain a 'text' column.")
+        # Validate columns
+        if not all(col in df.columns for col in ['Text', 'Type.1', 'AREA']):
+            st.error("❌ Columns 'Text', 'Type.1', and 'AREA' are required in the Excel file.")
         else:
             st.success("✅ File uploaded successfully!")
 
-            # Apply predictions
-            st.info("🔍 Predicting Type and Area...")
-            df['Predicted_Type'], df['Predicted_Area'] = zip(*df['text'].apply(
-                lambda x: predict_sample(x, model_type, model_area, tfidf_vectorizer, le_type, le_area)
-            ))
+            # Load models
+            model_type, model_area = load_models()
 
-            st.dataframe(df[['text', 'Predicted_Type', 'Predicted_Area']])
+            # Fit encoders and vectorizer from current data
+            X, y_type, y_area, tfidf_vectorizer, le_type, le_area = encode_text_data(df)
 
-            # Download link
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
+            # Make predictions
+            st.info("🔍 Predicting...")
+            type_preds, area_preds = [], []
+
+            for text in df['Text']:
+                type_out, area_out = predict_sample(text, model_type, model_area, tfidf_vectorizer, le_type, le_area)
+                type_preds.append(type_out)
+                area_preds.append(area_out)
+
+            df['Type_pred'] = type_preds
+            df['Area_pred'] = area_preds
+
+            # Show preview
+            st.dataframe(df[['Text', 'Type_pred', 'Area_pred']])
+
+            # Prepare download
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df.to_excel(writer, index=False, sheet_name='Predictions')
+            output.seek(0)
+
             st.download_button(
-                label="📥 Download predictions as CSV",
-                data=csv_buffer.getvalue(),
-                file_name="predictions.csv",
-                mime="text/csv"
+                label="📥 Download predictions as Excel",
+                data=output,
+                file_name="predictions.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
     except Exception as e:
-        st.error(f"❌ An error occurred: {e}")
-
+        st.error(f"❌ Error: {e}")
