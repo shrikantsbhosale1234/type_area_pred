@@ -1,1 +1,3 @@
-
+openpyxl
+streamlit
+scikit-learn
