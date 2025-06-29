@@ -55,6 +55,8 @@ uploaded_file = st.file_uploader("Upload an Excel file with columns: Text, Type.
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
+        df=df[['ID','Text','Type.1','AREA']]
+        df=df.dropna(subset=['ID','Text','Type.1','AREA'],ignore_index=True)
 
         # Validate columns
         if not all(col in df.columns for col in ['Text', 'Type.1', 'AREA']):
@@ -72,13 +74,19 @@ if uploaded_file:
             st.info("🔍 Predicting...")
             type_preds, area_preds = [], []
 
+            type_preds, area_preds , id = [], [], []
+            i=-1
             for text in df['Text']:
-                type_out, area_out = predict_sample(text, model_type, model_area, tfidf_vectorizer, le_type, le_area)
+                i+=1
+                type_out, area_out = predict_sample(text, model_type, model_area, tfidf_vectorizer)
                 type_preds.append(type_out)
                 area_preds.append(area_out)
-
-            df['Type_pred'] = type_preds
-            df['Area_pred'] = area_preds
+                id.append(df['ID'][i])
+                
+            df_preds = df.copy()
+            df_preds['Type_pred'] = type_preds
+            df_preds['Area_pred'] = area_preds
+            df_preds['id'] = id
 
             # Show preview
             st.dataframe(df)
