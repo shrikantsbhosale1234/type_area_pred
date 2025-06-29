@@ -78,7 +78,7 @@ if uploaded_file:
             i=-1
             for text in df['Text']:
                 i+=1
-                type_out, area_out = predict_sample(text, model_type, model_area, tfidf_vectorizer)
+                type_out, area_out = predict_sample(text, model_type, model_area, tfidf_vectorizer, le_type,le_area)
                 type_preds.append(type_out)
                 area_preds.append(area_out)
                 id.append(df['ID'][i])
