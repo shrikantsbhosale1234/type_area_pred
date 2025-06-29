@@ -89,7 +89,7 @@ if uploaded_file:
             df_preds['id'] = id
 
             # Show preview
-            st.dataframe(df)
+            st.dataframe(df_preds)
 
             # Prepare download
             output = io.BytesIO()
