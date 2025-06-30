@@ -4,94 +4,97 @@ import numpy as np
 import pickle
 import io
 
-from sklearn.preprocessing import LabelEncoder
-from sklearn.feature_extraction.text import TfidfVectorizer
-
 # --------------------------
-# Load trained models
+# Load pre-trained models and encoders
 # --------------------------
 @st.cache_resource
-def load_models():
+def load_artifacts():
     with open('model_type.pkl', 'rb') as f:
         model_type = pickle.load(f)
     with open('model_area.pkl', 'rb') as f:
         model_area = pickle.load(f)
-    return model_type, model_area
+    with open('model_supply.pkl', 'rb') as f:
+        model_supply = pickle.load(f)
+    with open('tfidf_vectorizer.pkl', 'rb') as f:
+        tfidf_vectorizer = pickle.load(f)
+    with open('le_type.pkl', 'rb') as f:
+        le_type = pickle.load(f)
+    with open('le_area.pkl', 'rb') as f:
+        le_area = pickle.load(f)
+    with open('le_supply.pkl', 'rb') as f:
+        le_supply = pickle.load(f)
+
+    return model_type, model_area, model_supply, tfidf_vectorizer, le_type, le_area, le_supply
 
 # --------------------------
-# Encode text and labels
+# Prediction function
 # --------------------------
-def encode_text_data(df, text_column='Text', type_column='Type.1', area_column='AREA', max_features=5000):
-    le_type = LabelEncoder()
-    y_type = le_type.fit_transform(df[type_column])
+def predict_sample(text, model_type, model_area, model_supply, tfidf_vectorizer, le_type, le_area, le_supply):
+    if pd.isna(text) or str(text).strip() == "":
+        return "Unknown", "Unknown", "Unknown"
 
-    le_area = LabelEncoder()
-    y_area = le_area.fit_transform(df[area_column])
-
-    tfidf_vectorizer = TfidfVectorizer(max_features=max_features, stop_words='english')
-    X = tfidf_vectorizer.fit_transform(df[text_column])
-
-    return X, y_type, y_area, tfidf_vectorizer, le_type, le_area
-
-# --------------------------
-# Predict single sample
-# --------------------------
-def predict_sample(text, model_type, model_area, tfidf_vectorizer, le_type, le_area):
     text_vector = tfidf_vectorizer.transform([str(text)])
+
+    # Predict encoded labels
     type_encoded = model_type.predict(text_vector)[0]
     area_encoded = model_area.predict(text_vector)[0]
+    supply_encoded = model_supply.predict(text_vector)[0]
+
+    # Decode to original labels
     type_label = le_type.inverse_transform([type_encoded])[0]
     area_label = le_area.inverse_transform([area_encoded])[0]
-    return type_label, area_label
+    supply_label = le_supply.inverse_transform([supply_encoded])[0]
+
+    return type_label, area_label, supply_label
 
 # --------------------------
 # Streamlit UI
 # --------------------------
-st.set_page_config(page_title="Text to Type/Area Predictor", layout="centered")
-st.title("📄 Predict Type and Area from Excel (.xlsx)")
+st.set_page_config(page_title="Predict Type/Area/Supply", layout="centered")
+st.title("📄 Predict Type, Area, and Supply from Excel")
 
-uploaded_file = st.file_uploader("Upload an Excel file with columns: Text, Type.1, AREA", type=["xlsx"])
+uploaded_file = st.file_uploader("📤 Upload an Excel file with a 'Text' column", type=["xlsx"])
 
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
-        df=df[['ID','Text','Type.1','AREA']]
-        df=df.dropna(subset=['ID','Text','Type.1','AREA'],ignore_index=True)
 
-        # Validate columns
-        if not all(col in df.columns for col in ['Text', 'Type.1', 'AREA']):
-            st.error("❌ Columns 'Text', 'Type.1', and 'AREA' are required in the Excel file.")
+        if 'Text' not in df.columns:
+            st.error("❌ Column 'Text' is required in the uploaded file.")
         else:
             st.success("✅ File uploaded successfully!")
 
-            # Load models
-            model_type, model_area = load_models()
+            # Load models and encoders
+            model_type, model_area, model_supply, tfidf_vectorizer, le_type, le_area, le_supply = load_artifacts()
 
-            # Fit encoders and vectorizer from current data
-            X, y_type, y_area, tfidf_vectorizer, le_type, le_area = encode_text_data(df)
-
-            # Make predictions
+            # Generate predictions
             st.info("🔍 Predicting...")
-            type_preds, area_preds = [], []
+            type_preds, area_preds, supply_preds = [], [], []
 
-            type_preds, area_preds , id = [], [], []
-            i=-1
             for text in df['Text']:
-                i+=1
-                type_out, area_out = predict_sample(text, model_type, model_area, tfidf_vectorizer, le_type,le_area)
+                type_out, area_out, supply_out = predict_sample(
+                    text,
+                    model_type,
+                    model_area,
+                    model_supply,
+                    tfidf_vectorizer,
+                    le_type,
+                    le_area,
+                    le_supply
+                )
                 type_preds.append(type_out)
                 area_preds.append(area_out)
-                id.append(df['ID'][i])
-                
-            df_preds = df.copy()
-            df_preds['Type_pred'] = type_preds
-            df_preds['Area_pred'] = area_preds
-            df_preds['id'] = id
+                supply_preds.append(supply_out)
 
-            # Show preview
-            st.dataframe(df_preds)
+            # Add predictions to the DataFrame
+            df['Type_pred'] = type_preds
+            df['Area_pred'] = area_preds
+            df['Supply_pred'] = supply_preds
 
-            # Prepare download
+            # Display the result
+            st.dataframe(df)
+
+            # Prepare Excel for download
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df.to_excel(writer, index=False, sheet_name='Predictions')
@@ -100,9 +103,9 @@ if uploaded_file:
             st.download_button(
                 label="📥 Download predictions as Excel",
                 data=output,
-                file_name="predictions.xlsx",
+                file_name="predicted_output.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
     except Exception as e:
-        st.error(f"❌ Error: {e}")
+        st.error(f"❌ Error occurred: {e}")
