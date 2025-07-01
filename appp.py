@@ -33,19 +33,32 @@ def predict_sample(text, model_type, model_area, model_supply, tfidf_vectorizer,
     if pd.isna(text) or str(text).strip() == "":
         return "Unknown", "Unknown", "Unknown"
 
-    text_vector = tfidf_vectorizer.transform([str(text)])
+    try:
+        text_vector = tfidf_vectorizer.transform([str(text)])
 
-    # Predict encoded labels
-    type_encoded = model_type.predict(text_vector)[0]
-    area_encoded = model_area.predict(text_vector)[0]
-    supply_encoded = model_supply.predict(text_vector)[0]
+        type_encoded = model_type.predict(text_vector)[0]
+        area_encoded = model_area.predict(text_vector)[0]
+        supply_encoded = model_supply.predict(text_vector)[0]
 
-    # Decode to original labels
-    type_label = le_type.inverse_transform([type_encoded])[0]
-    area_label = le_area.inverse_transform([area_encoded])[0]
-    supply_label = le_supply.inverse_transform([supply_encoded])[0]
+        try:
+            type_label = le_type.inverse_transform([type_encoded])[0]
+        except:
+            type_label = "Unknown"
 
-    return type_label, area_label, supply_label
+        try:
+            area_label = le_area.inverse_transform([area_encoded])[0]
+        except:
+            area_label = "Unknown"
+
+        try:
+            supply_label = le_supply.inverse_transform([supply_encoded])[0]
+        except:
+            supply_label = "Unknown"
+
+        return type_label, area_label, supply_label
+
+    except Exception as e:
+        return "Unknown", "Unknown", "Unknown"
 
 # --------------------------
 # Streamlit UI
@@ -63,6 +76,10 @@ if uploaded_file:
             st.error("❌ Column 'Text' is required in the uploaded file.")
         else:
             st.success("✅ File uploaded successfully!")
+
+            # Normalize supply column
+            if 'Status Supplier 2' in df.columns:
+                df['Status Supplier 2'] = np.where(df['Status Supplier 2'] == 'Accepted', 'Accepted', 'Not Accepted')
 
             # Load models and encoders
             model_type, model_area, model_supply, tfidf_vectorizer, le_type, le_area, le_supply = load_artifacts()
